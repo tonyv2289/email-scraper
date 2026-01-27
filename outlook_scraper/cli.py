@@ -22,83 +22,140 @@ from .storage import ContactStorage
 console = Console()
 
 
-@click.group()
-@click.version_option(version="1.0.0")
-def cli():
-    """
-    Outlook Contact Scraper
+def _scrape_local(extractor, aggregator, attachment_processor, max_emails, since_date, include_sent, process_attachments):
+    """Scrape using local Outlook application (Windows only)."""
+    try:
+        from .local_outlook import LocalOutlookReader
+    except Exception as e:
+        console.print(f"[red]Could not import local Outlook module: {e}[/red]")
+        return 0, 0
 
-    Extract contact information from your Outlook emails including names,
-    email addresses, job titles, and last contact dates.
-    """
-    # Load environment variables
-    load_dotenv()
+    try:
+        reader = LocalOutlookReader()
+    except Exception as e:
+        console.print(f"[red]Failed to connect to Outlook: {e}[/red]")
+        console.print("\n[yellow]Make sure:[/yellow]")
+        console.print("  1. You're running on Windows")
+        console.print("  2. Outlook desktop app is installed")
+        console.print("  3. You've opened Outlook at least once")
+        console.print("  4. pywin32 is installed: pip install pywin32")
+        return 0, 0
+
+    # Get account info
+    account_info = reader.get_account_info()
+    console.print(f"\n[green]Reading from:[/green] {account_info.get('display_name', 'Unknown')} ({account_info.get('email', 'Unknown')})")
+
+    # Set up folders
+    folders = ['inbox']
+    if include_sent:
+        folders.append('sent')
+
+    console.print("\n[bold]Fetching emails from local Outlook...[/bold]")
+
+    email_count = 0
+    attachment_count = 0
+
+    from .contact_extractor import Contact
+    from .email_fetcher import Attachment
+
+    for local_email in reader.fetch_emails(
+        folders=folders,
+        max_emails=max_emails,
+        since_date=since_date,
+        include_attachments=process_attachments,
+    ):
+        email_count += 1
+
+        # Create contacts from the local email
+        if local_email.sender_email:
+            sender_contact = Contact(
+                email=local_email.sender_email,
+                name=local_email.sender_name,
+                last_contact_date=local_email.received_time,
+                contact_count=1,
+                source="email_sender",
+            )
+            # Try to extract title from body
+            if local_email.body:
+                title = extractor._extract_title_from_text(local_email.body)
+                if title:
+                    sender_contact.title = title
+                company = extractor._extract_company_from_text(local_email.body, local_email.sender_email)
+                if company:
+                    sender_contact.company = company
+            if not sender_contact.company:
+                sender_contact.company = extractor._extract_company_from_text("", local_email.sender_email)
+            aggregator.add_contact(sender_contact)
+
+        # Add recipients
+        for recip in local_email.to_recipients:
+            if recip.email:
+                contact = Contact(
+                    email=recip.email,
+                    name=recip.name,
+                    company=extractor._extract_company_from_text("", recip.email),
+                    last_contact_date=local_email.received_time,
+                    contact_count=1,
+                    source="email_recipient",
+                )
+                aggregator.add_contact(contact)
+
+        for recip in local_email.cc_recipients:
+            if recip.email:
+                contact = Contact(
+                    email=recip.email,
+                    name=recip.name,
+                    company=extractor._extract_company_from_text("", recip.email),
+                    last_contact_date=local_email.received_time,
+                    contact_count=1,
+                    source="email_cc",
+                )
+                aggregator.add_contact(contact)
+
+        # Process attachments
+        if process_attachments and local_email.attachments:
+            for local_att in local_email.attachments:
+                attachment_count += 1
+                # Convert to our Attachment type
+                import mimetypes
+                content_type, _ = mimetypes.guess_type(local_att.name)
+                attachment = Attachment(
+                    name=local_att.name,
+                    content_type=content_type or 'application/octet-stream',
+                    content=local_att.content,
+                    size=local_att.size,
+                )
+                att_contacts = attachment_processor.process_attachment(attachment)
+                aggregator.add_contacts(att_contacts)
+
+    return email_count, attachment_count
 
 
-@cli.command()
-@click.option('--max-emails', '-n', default=None, type=int, help='Maximum number of emails to process')
-@click.option('--days', '-d', default=None, type=int, help='Only process emails from the last N days')
-@click.option('--include-sent/--no-sent', default=True, help='Include sent emails (default: yes)')
-@click.option('--process-attachments/--no-attachments', default=True, help='Process attachments for contacts (default: yes)')
-@click.option('--output-dir', '-o', default='./output', help='Output directory for exported files')
-@click.option('--format', '-f', 'output_format', type=click.Choice(['csv', 'json', 'both']), default='both', help='Output format')
-@click.option('--show-table/--no-table', default=True, help='Show results table (default: yes)')
-def scrape(
-    max_emails: Optional[int],
-    days: Optional[int],
-    include_sent: bool,
-    process_attachments: bool,
-    output_dir: str,
-    output_format: str,
-    show_table: bool,
-):
-    """
-    Scrape contacts from Outlook emails.
-
-    This command will:
-    1. Authenticate with Microsoft Graph API
-    2. Fetch emails from your inbox (and optionally sent folder)
-    3. Extract contact information from email headers and signatures
-    4. Optionally process attachments for contact lists
-    5. Export the results to CSV and/or JSON
-    """
-    console.print("\n[bold blue]Outlook Contact Scraper[/bold blue]")
-    console.print("=" * 40)
-
+def _scrape_api(extractor, aggregator, attachment_processor, max_emails, since_date, include_sent, process_attachments):
+    """Scrape using Microsoft Graph API."""
     # Authenticate
     try:
         auth = get_authenticator()
         access_token = auth.get_access_token()
         if not access_token:
             console.print("[red]Authentication failed. Exiting.[/red]")
-            return
+            return 0, 0
     except ValueError as e:
         console.print(f"[red]{e}[/red]")
         console.print("\n[yellow]Setup instructions:[/yellow]")
         console.print("1. Create an Azure AD app at https://portal.azure.com")
         console.print("2. Add API permissions: Mail.Read, Mail.ReadBasic, User.Read")
         console.print("3. Copy .env.example to .env and fill in your credentials")
-        return
+        console.print("\n[cyan]Or use --local flag on Windows to read from Outlook desktop app (no admin required)[/cyan]")
+        return 0, 0
 
-    # Initialize components
     fetcher = EmailFetcher(access_token)
-    extractor = ContactExtractor()
-    aggregator = ContactAggregator()
-    attachment_processor = AttachmentProcessor()
-    storage = ContactStorage(output_dir)
 
     # Get user info
     user_info = fetcher.get_user_info()
     if user_info:
         console.print(f"\n[green]Authenticated as:[/green] {user_info.get('displayName', 'Unknown')} ({user_info.get('mail', user_info.get('userPrincipalName', 'Unknown'))})")
 
-    # Calculate since_date if days specified
-    since_date = None
-    if days:
-        since_date = datetime.now() - timedelta(days=days)
-        console.print(f"[cyan]Filtering emails from the last {days} days[/cyan]")
-
-    # Fetch and process emails
     console.print("\n[bold]Fetching emails...[/bold]")
 
     email_count = 0
@@ -122,6 +179,87 @@ def scrape(
                 attachment_count += 1
                 attachment_contacts = attachment_processor.process_attachment(attachment)
                 aggregator.add_contacts(attachment_contacts)
+
+    return email_count, attachment_count
+
+
+@click.group()
+@click.version_option(version="1.0.0")
+def cli():
+    """
+    Outlook Contact Scraper
+
+    Extract contact information from your Outlook emails including names,
+    email addresses, job titles, and last contact dates.
+    """
+    # Load environment variables
+    load_dotenv()
+
+
+@cli.command()
+@click.option('--local', '-l', is_flag=True, help='Use local Outlook app (Windows only, no admin required)')
+@click.option('--max-emails', '-n', default=None, type=int, help='Maximum number of emails to process')
+@click.option('--days', '-d', default=None, type=int, help='Only process emails from the last N days')
+@click.option('--include-sent/--no-sent', default=True, help='Include sent emails (default: yes)')
+@click.option('--process-attachments/--no-attachments', default=True, help='Process attachments for contacts (default: yes)')
+@click.option('--output-dir', '-o', default='./output', help='Output directory for exported files')
+@click.option('--format', '-f', 'output_format', type=click.Choice(['csv', 'json', 'both']), default='both', help='Output format')
+@click.option('--show-table/--no-table', default=True, help='Show results table (default: yes)')
+def scrape(
+    local: bool,
+    max_emails: Optional[int],
+    days: Optional[int],
+    include_sent: bool,
+    process_attachments: bool,
+    output_dir: str,
+    output_format: str,
+    show_table: bool,
+):
+    """
+    Scrape contacts from Outlook emails.
+
+    This command will:
+    1. Connect to Outlook (via API or local app)
+    2. Fetch emails from your inbox (and optionally sent folder)
+    3. Extract contact information from email headers and signatures
+    4. Optionally process attachments for contact lists
+    5. Export the results to CSV and/or JSON
+
+    Use --local flag on Windows to read from Outlook desktop app (no admin required).
+    """
+    console.print("\n[bold blue]Outlook Contact Scraper[/bold blue]")
+    console.print("=" * 40)
+
+    # Initialize components
+    extractor = ContactExtractor()
+    aggregator = ContactAggregator()
+    attachment_processor = AttachmentProcessor()
+    storage = ContactStorage(output_dir)
+
+    # Calculate since_date if days specified
+    since_date = None
+    if days:
+        since_date = datetime.now() - timedelta(days=days)
+        console.print(f"[cyan]Filtering emails from the last {days} days[/cyan]")
+
+    email_count = 0
+    attachment_count = 0
+
+    if local:
+        # Use local Outlook mode (Windows only, no admin required)
+        email_count, attachment_count = _scrape_local(
+            extractor, aggregator, attachment_processor,
+            max_emails, since_date, include_sent, process_attachments
+        )
+    else:
+        # Use Graph API mode
+        email_count, attachment_count = _scrape_api(
+            extractor, aggregator, attachment_processor,
+            max_emails, since_date, include_sent, process_attachments
+        )
+
+    if email_count == 0:
+        return
 
     console.print(f"\n[green]Processed {email_count} emails and {attachment_count} attachments[/green]")
 
