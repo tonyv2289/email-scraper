@@ -1,0 +1,28 @@
+# Microsoft Graph API authentication
+msal>=1.24.0
+
+# HTTP requests
+requests>=2.31.0
+
+# Data handling
+pandas>=2.0.0
+
+# Excel file parsing
+openpyxl>=3.1.0
+xlrd>=2.0.0
+
+# PDF parsing for contact extraction
+pdfplumber>=0.10.0
+
+# vCard parsing
+vobject>=0.9.6
+
+# Email parsing
+python-dateutil>=2.8.0
+
+# CLI interface
+click>=8.1.0
+rich>=13.0.0
+
+# Environment variables
+python-dotenv>=1.0.0
