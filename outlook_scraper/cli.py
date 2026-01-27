@@ -5,6 +5,7 @@ Provides CLI commands for the Outlook contact scraper.
 """
 
 import os
+import sys
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -22,23 +23,41 @@ from .storage import ContactStorage
 console = Console()
 
 
-def _scrape_local(extractor, aggregator, attachment_processor, max_emails, since_date, include_sent, process_attachments):
-    """Scrape using local Outlook application (Windows only)."""
-    try:
+def _get_local_reader():
+    """Get the appropriate local Outlook reader for the current platform."""
+    if sys.platform == 'darwin':
+        # macOS - use AppleScript
+        from .local_outlook_mac import MacOutlookReader
+        return MacOutlookReader()
+    elif sys.platform == 'win32':
+        # Windows - use COM automation
         from .local_outlook import LocalOutlookReader
-    except Exception as e:
-        console.print(f"[red]Could not import local Outlook module: {e}[/red]")
-        return 0, 0
+        return LocalOutlookReader()
+    else:
+        raise RuntimeError(f"Local mode not supported on {sys.platform}. Use API mode instead.")
 
+
+def _scrape_local(extractor, aggregator, attachment_processor, max_emails, since_date, include_sent, process_attachments):
+    """Scrape using local Outlook application (Windows or macOS)."""
     try:
-        reader = LocalOutlookReader()
+        reader = _get_local_reader()
+    except ImportError as e:
+        console.print(f"[red]Could not import local Outlook module: {e}[/red]")
+        if sys.platform == 'win32':
+            console.print("[yellow]Install pywin32: pip install pywin32[/yellow]")
+        return 0, 0
     except Exception as e:
         console.print(f"[red]Failed to connect to Outlook: {e}[/red]")
         console.print("\n[yellow]Make sure:[/yellow]")
-        console.print("  1. You're running on Windows")
-        console.print("  2. Outlook desktop app is installed")
-        console.print("  3. You've opened Outlook at least once")
-        console.print("  4. pywin32 is installed: pip install pywin32")
+        if sys.platform == 'darwin':
+            console.print("  1. Outlook for Mac is installed")
+            console.print("  2. You've opened Outlook at least once")
+            console.print("  3. Grant Terminal/Python permission to control Outlook when prompted")
+        else:
+            console.print("  1. You're running on Windows or macOS")
+            console.print("  2. Outlook desktop app is installed")
+            console.print("  3. You've opened Outlook at least once")
+            console.print("  4. (Windows) pywin32 is installed: pip install pywin32")
         return 0, 0
 
     # Get account info

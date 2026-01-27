@@ -17,7 +17,7 @@ Extract contact information (names, emails, job titles) from your Outlook emails
 - Python 3.8+
 - Microsoft 365 / Outlook account
 - **Either:**
-  - Outlook desktop app installed (Windows) - **no admin required**, or
+  - Outlook desktop app installed (Windows or macOS) - **no admin required**, or
   - Azure AD app registration (for API access)
 
 ## Installation
@@ -33,24 +33,21 @@ Extract contact information (names, emails, job titles) from your Outlook emails
    pip install -r requirements.txt
    ```
 
-3. **For Windows local mode (no admin required):**
-   ```bash
-   pip install pywin32
-   ```
+3. **For Windows local mode:** `pip install pywin32`
 
-4. **For API mode:** Set up Azure AD app registration (see below) and configure:
-   ```bash
-   cp .env.example .env
-   # Edit .env with your Azure AD credentials
-   ```
+4. **For macOS local mode:** No extra dependencies needed (uses AppleScript)
 
-## Quick Start (No Admin Required - Windows Only)
+5. **For API mode:** Set up Azure AD app registration (see below)
 
-If you're on Windows with Outlook desktop installed, you can skip all Azure setup:
+## Quick Start (No Admin Required - Windows & macOS)
+
+If you have Outlook desktop installed, you can skip all Azure setup:
 
 ```bash
 # Install dependencies
 pip install -r requirements.txt
+
+# Windows only: install pywin32
 pip install pywin32
 
 # Run with local mode
@@ -61,6 +58,8 @@ python main.py scrape --local --days 30
 ```
 
 This reads directly from your Outlook desktop application - no Azure AD registration or admin permissions needed.
+
+**macOS Note:** When you first run with `--local`, macOS may prompt you to grant Terminal (or your IDE) permission to control Outlook. Click "OK" to allow.
 
 ## Azure AD Setup (API Mode)
 
@@ -184,22 +183,28 @@ The scraper exports contacts with the following fields:
 ### "CLIENT_ID environment variable is required"
 You're trying to use API mode without Azure credentials. Either:
 - Set up Azure AD and configure `.env` file, or
-- Use `--local` flag on Windows to skip Azure entirely
+- Use `--local` flag to skip Azure entirely (Windows/macOS)
 
 ### "Authentication failed"
 1. Verify your CLIENT_ID and TENANT_ID are correct
 2. Check that you've granted the required API permissions
 3. Try running `python main.py logout` and then `python main.py login` again
-4. **Alternative:** Use `--local` flag on Windows (no Azure required)
+4. **Alternative:** Use `--local` flag (no Azure required)
 
 ### "Access denied" or permission errors
 Your Azure AD admin may need to grant consent for the application permissions.
-**Alternative:** Use `--local` flag on Windows - it reads from your local Outlook app and doesn't require admin permissions.
+**Alternative:** Use `--local` flag - it reads from your local Outlook app and doesn't require admin permissions.
 
 ### Local mode issues (Windows)
 1. Make sure Outlook desktop is installed and has been opened at least once
 2. Install pywin32: `pip install pywin32`
 3. If using a corporate account, your emails should already be synced locally
+
+### Local mode issues (macOS)
+1. Make sure Outlook for Mac is installed and has been opened at least once
+2. When prompted, grant Terminal/Python permission to control Outlook
+3. Go to System Preferences > Security & Privacy > Privacy > Automation and ensure Terminal can control Microsoft Outlook
+4. If emails are slow to load, try limiting with `--days 30` or `--max-emails 500`
 
 ## License
 
