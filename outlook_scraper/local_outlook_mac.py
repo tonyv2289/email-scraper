@@ -169,58 +169,54 @@ class MacOutlookReader:
             outlook_folder = folder_map.get(folder_name.lower(), folder_name)
             console.print(f"\n[cyan]Reading from {outlook_folder}...[/cyan]")
 
-            # Get message count first - search through all folders recursively
+            # Get message count - search through folder hierarchy (3 levels deep)
             count_script = f'''
             tell application "Microsoft Outlook"
                 set targetName to "{outlook_folder}"
 
-                -- Helper to find folder by name recursively
-                on findFolderByName(parentFolder, targetName)
-                    try
-                        repeat with f in mail folders of parentFolder
-                            if name of f is targetName then
-                                return f
-                            end if
-                            set subResult to my findFolderByName(f, targetName)
-                            if subResult is not missing value then
-                                return subResult
-                            end if
-                        end repeat
-                    end try
-                    return missing value
-                end findFolderByName
-
-                -- Try direct access first
+                -- Try direct access first (for standard folders like inbox)
                 try
                     set theFolder to mail folder targetName
                     return count of messages of theFolder
                 end try
 
-                -- Search in all accounts
-                repeat with acct in exchange accounts
-                    try
-                        set foundFolder to my findFolderByName(root folder of acct, targetName)
-                        if foundFolder is not missing value then
-                            return count of messages of foundFolder
-                        end if
-                    end try
-                end repeat
+                -- Search in all accounts - check 3 levels deep
+                set allAccounts to {{}}
+                try
+                    set allAccounts to allAccounts & exchange accounts
+                end try
+                try
+                    set allAccounts to allAccounts & imap accounts
+                end try
+                try
+                    set allAccounts to allAccounts & pop accounts
+                end try
 
-                repeat with acct in imap accounts
+                repeat with acct in allAccounts
                     try
-                        set foundFolder to my findFolderByName(root folder of acct, targetName)
-                        if foundFolder is not missing value then
-                            return count of messages of foundFolder
-                        end if
-                    end try
-                end repeat
-
-                repeat with acct in pop accounts
-                    try
-                        set foundFolder to my findFolderByName(root folder of acct, targetName)
-                        if foundFolder is not missing value then
-                            return count of messages of foundFolder
-                        end if
+                        set rootF to root folder of acct
+                        -- Level 1: direct children of root
+                        repeat with f1 in mail folders of rootF
+                            if name of f1 is targetName then
+                                return count of messages of f1
+                            end if
+                            -- Level 2: subfolders
+                            try
+                                repeat with f2 in mail folders of f1
+                                    if name of f2 is targetName then
+                                        return count of messages of f2
+                                    end if
+                                    -- Level 3: sub-subfolders
+                                    try
+                                        repeat with f3 in mail folders of f2
+                                            if name of f3 is targetName then
+                                                return count of messages of f3
+                                            end if
+                                        end repeat
+                                    end try
+                                end repeat
+                            end try
+                        end repeat
                     end try
                 end repeat
 
@@ -261,53 +257,54 @@ class MacOutlookReader:
                     fetch_script = f'''
                     tell application "Microsoft Outlook"
                         set targetName to "{outlook_folder}"
-
-                        -- Helper to find folder by name recursively
-                        on findFolderByName(parentFolder, targetName)
-                            try
-                                repeat with f in mail folders of parentFolder
-                                    if name of f is targetName then
-                                        return f
-                                    end if
-                                    set subResult to my findFolderByName(f, targetName)
-                                    if subResult is not missing value then
-                                        return subResult
-                                    end if
-                                end repeat
-                            end try
-                            return missing value
-                        end findFolderByName
+                        set theFolder to missing value
 
                         -- Try direct access first
-                        set theFolder to missing value
                         try
                             set theFolder to mail folder targetName
                         end try
 
-                        -- If not found, search in all accounts
+                        -- If not found, search in all accounts (3 levels deep)
                         if theFolder is missing value then
-                            repeat with acct in exchange accounts
-                                try
-                                    set theFolder to my findFolderByName(root folder of acct, targetName)
-                                    if theFolder is not missing value then exit repeat
-                                end try
-                            end repeat
-                        end if
+                            set allAccounts to {{}}
+                            try
+                                set allAccounts to allAccounts & exchange accounts
+                            end try
+                            try
+                                set allAccounts to allAccounts & imap accounts
+                            end try
+                            try
+                                set allAccounts to allAccounts & pop accounts
+                            end try
 
-                        if theFolder is missing value then
-                            repeat with acct in imap accounts
+                            repeat with acct in allAccounts
+                                if theFolder is not missing value then exit repeat
                                 try
-                                    set theFolder to my findFolderByName(root folder of acct, targetName)
-                                    if theFolder is not missing value then exit repeat
-                                end try
-                            end repeat
-                        end if
-
-                        if theFolder is missing value then
-                            repeat with acct in pop accounts
-                                try
-                                    set theFolder to my findFolderByName(root folder of acct, targetName)
-                                    if theFolder is not missing value then exit repeat
+                                    set rootF to root folder of acct
+                                    repeat with f1 in mail folders of rootF
+                                        if theFolder is not missing value then exit repeat
+                                        if name of f1 is targetName then
+                                            set theFolder to f1
+                                            exit repeat
+                                        end if
+                                        try
+                                            repeat with f2 in mail folders of f1
+                                                if theFolder is not missing value then exit repeat
+                                                if name of f2 is targetName then
+                                                    set theFolder to f2
+                                                    exit repeat
+                                                end if
+                                                try
+                                                    repeat with f3 in mail folders of f2
+                                                        if name of f3 is targetName then
+                                                            set theFolder to f3
+                                                            exit repeat
+                                                        end if
+                                                    end repeat
+                                                end try
+                                            end repeat
+                                        end try
+                                    end repeat
                                 end try
                             end repeat
                         end if
