@@ -152,7 +152,7 @@ class MacOutlookReader:
 
         total_fetched = 0
 
-        # Map folder names
+        # Map common folder names (but allow custom folder names to pass through)
         folder_map = {
             'inbox': 'inbox',
             'sent': 'sent items',
@@ -165,21 +165,23 @@ class MacOutlookReader:
             if max_emails and total_fetched >= max_emails:
                 break
 
+            # Use mapped name if exists, otherwise use as-is (for custom folders like "EXPORT")
             outlook_folder = folder_map.get(folder_name.lower(), folder_name)
             console.print(f"\n[cyan]Reading from {outlook_folder}...[/cyan]")
 
-            # Build date filter
-            date_filter = ""
-            if since_date:
-                date_str = since_date.strftime("%m/%d/%Y")
-                date_filter = f'whose time received > date "{date_str}"'
-
-            # Get message count first
+            # Get message count first (no date filter in AppleScript - we'll filter in Python)
             count_script = f'''
             tell application "Microsoft Outlook"
-                set theFolder to folder "{outlook_folder}"
-                set msgCount to count of messages of theFolder {date_filter}
-                return msgCount
+                try
+                    set theFolder to mail folder "{outlook_folder}"
+                    set msgCount to count of messages of theFolder
+                    return msgCount
+                on error
+                    -- Try as a top-level folder name
+                    set theFolder to folder "{outlook_folder}"
+                    set msgCount to count of messages of theFolder
+                    return msgCount
+                end try
             end tell
             '''
 
@@ -209,11 +211,15 @@ class MacOutlookReader:
                 for batch_start in range(1, to_fetch + 1, batch_size):
                     batch_end = min(batch_start + batch_size - 1, to_fetch)
 
-                    # Fetch batch of emails
+                    # Fetch batch of emails (no date filter - we filter in Python)
                     fetch_script = f'''
                     tell application "Microsoft Outlook"
-                        set theFolder to folder "{outlook_folder}"
-                        set allMessages to messages of theFolder {date_filter}
+                        try
+                            set theFolder to mail folder "{outlook_folder}"
+                        on error
+                            set theFolder to folder "{outlook_folder}"
+                        end try
+                        set allMessages to messages of theFolder
                         set output to ""
 
                         repeat with i from {batch_start} to {batch_end}
@@ -224,7 +230,10 @@ class MacOutlookReader:
                                 set senderEmail to address of msgSender
                                 set senderName to name of msgSender
                                 set msgTime to time received of theMessage
-                                set msgBody to plain text content of theMessage
+                                set msgBody to ""
+                                try
+                                    set msgBody to plain text content of theMessage
+                                end try
 
                                 -- Get recipients
                                 set toList to ""
@@ -238,7 +247,15 @@ class MacOutlookReader:
                                 end repeat
 
                                 -- Format: subject|||senderEmail|||senderName|||time|||body|||toList|||ccList
-                                set msgLine to msgSubject & "|||" & senderEmail & "|||" & senderName & "|||" & (msgTime as string) & "|||" & (text 1 thru (min of {{2000, length of msgBody}}) of msgBody) & "|||" & toList & "|||" & ccList
+                                set bodyText to ""
+                                if length of msgBody > 0 then
+                                    if length of msgBody > 2000 then
+                                        set bodyText to text 1 thru 2000 of msgBody
+                                    else
+                                        set bodyText to msgBody
+                                    end if
+                                end if
+                                set msgLine to msgSubject & "|||" & senderEmail & "|||" & senderName & "|||" & (msgTime as string) & "|||" & bodyText & "|||" & toList & "|||" & ccList
                                 set output to output & msgLine & "<<<MSGSEP>>>"
                             end try
                         end repeat
@@ -284,6 +301,11 @@ class MacOutlookReader:
                             # Parse recipients
                             to_recipients = self._parse_email_list(to_raw)
                             cc_recipients = self._parse_email_list(cc_raw)
+
+                            # Filter by date in Python (more reliable than AppleScript date filtering)
+                            if since_date and received_time and received_time < since_date:
+                                progress.update(task, advance=1)
+                                continue
 
                             email = LocalEmail(
                                 subject=subject,

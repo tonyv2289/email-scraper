@@ -37,7 +37,7 @@ def _get_local_reader():
         raise RuntimeError(f"Local mode not supported on {sys.platform}. Use API mode instead.")
 
 
-def _scrape_local(extractor, aggregator, attachment_processor, max_emails, since_date, include_sent, process_attachments):
+def _scrape_local(extractor, aggregator, attachment_processor, max_emails, since_date, include_sent, process_attachments, custom_folder=None):
     """Scrape using local Outlook application (Windows or macOS)."""
     try:
         reader = _get_local_reader()
@@ -65,9 +65,14 @@ def _scrape_local(extractor, aggregator, attachment_processor, max_emails, since
     console.print(f"\n[green]Reading from:[/green] {account_info.get('display_name', 'Unknown')} ({account_info.get('email', 'Unknown')})")
 
     # Set up folders
-    folders = ['inbox']
-    if include_sent:
-        folders.append('sent')
+    if custom_folder:
+        # Use only the specified custom folder
+        folders = [custom_folder]
+        console.print(f"[cyan]Using custom folder: {custom_folder}[/cyan]")
+    else:
+        folders = ['inbox']
+        if include_sent:
+            folders.append('sent')
 
     console.print("\n[bold]Fetching emails from local Outlook...[/bold]")
 
@@ -216,7 +221,8 @@ def cli():
 
 
 @cli.command()
-@click.option('--local', '-l', is_flag=True, help='Use local Outlook app (Windows only, no admin required)')
+@click.option('--local', '-l', is_flag=True, help='Use local Outlook app (Windows/macOS, no admin required)')
+@click.option('--folder', default=None, type=str, help='Specific folder to scrape (e.g., "EXPORT", "Projects")')
 @click.option('--max-emails', '-n', default=None, type=int, help='Maximum number of emails to process')
 @click.option('--days', '-d', default=None, type=int, help='Only process emails from the last N days')
 @click.option('--include-sent/--no-sent', default=True, help='Include sent emails (default: yes)')
@@ -226,6 +232,7 @@ def cli():
 @click.option('--show-table/--no-table', default=True, help='Show results table (default: yes)')
 def scrape(
     local: bool,
+    folder: Optional[str],
     max_emails: Optional[int],
     days: Optional[int],
     include_sent: bool,
@@ -265,10 +272,10 @@ def scrape(
     attachment_count = 0
 
     if local:
-        # Use local Outlook mode (Windows only, no admin required)
+        # Use local Outlook mode (Windows/macOS, no admin required)
         email_count, attachment_count = _scrape_local(
             extractor, aggregator, attachment_processor,
-            max_emails, since_date, include_sent, process_attachments
+            max_emails, since_date, include_sent, process_attachments, folder
         )
     else:
         # Use Graph API mode
