@@ -87,26 +87,42 @@ class MacOutlookReader:
         tell application "Microsoft Outlook"
             set output to ""
 
-            -- Try to list all accounts
+            -- Try to list all accounts with their folders
             try
-                set output to output & "=== Accounts ===" & linefeed
+                set output to output & "=== All Accounts ===" & linefeed
                 repeat with acct in (every account)
                     try
-                        set output to output & "Account: " & (name of acct) & linefeed
+                        set acctName to name of acct
+                        set output to output & "Account: " & acctName & linefeed
+
+                        -- Try to get folders from this account
+                        try
+                            repeat with f in (mail folders of acct)
+                                try
+                                    set output to output & "  - " & (name of f) & linefeed
+                                    -- Check subfolders
+                                    try
+                                        repeat with f2 in (mail folders of f)
+                                            set output to output & "    - " & (name of f2) & linefeed
+                                            try
+                                                repeat with f3 in (mail folders of f2)
+                                                    set output to output & "      - " & (name of f3) & linefeed
+                                                end repeat
+                                            end try
+                                        end repeat
+                                    end try
+                                end try
+                            end repeat
+                        end try
                     end try
                 end repeat
             end try
 
-            -- Try to get all mail folders
+            -- Also try the selected folder in UI
             try
-                set output to output & linefeed & "=== All Mail Folders ===" & linefeed
-                repeat with f in (every mail folder)
-                    try
-                        set folderName to name of f
-                        set msgCount to count of messages of f
-                        set output to output & folderName & " (" & msgCount & " messages)" & linefeed
-                    end try
-                end repeat
+                set output to output & linefeed & "=== Currently Selected ===" & linefeed
+                set selFolder to selected folder
+                set output to output & "Selected: " & (name of selFolder) & linefeed
             end try
 
             return output
@@ -200,39 +216,65 @@ class MacOutlookReader:
             outlook_folder = folder_map.get(folder_name.lower(), folder_name)
             console.print(f"\n[cyan]Reading from {outlook_folder}...[/cyan]")
 
-            # Get message count - search through ALL mail folders including subfolders
-            count_script = f'''
-            tell application "Microsoft Outlook"
-                set targetName to "{outlook_folder}"
-
-                -- Search through all mail folders (top level)
-                repeat with f in (every mail folder)
+            # Special case: use currently selected folder in Outlook UI
+            if outlook_folder.lower() == "selected":
+                count_script = '''
+                tell application "Microsoft Outlook"
                     try
-                        if name of f is targetName then
-                            return count of messages of f
-                        end if
-                        -- Search subfolders (level 2)
+                        set selFolder to selected folder
+                        return count of messages of selFolder
+                    end try
+                    return 0
+                end tell
+                '''
+            else:
+                # Get message count - search through all accounts and their folders
+                count_script = f'''
+                tell application "Microsoft Outlook"
+                    set targetName to "{outlook_folder}"
+
+                    -- Search through all accounts
+                    repeat with acct in (every account)
                         try
-                            repeat with f2 in (mail folders of f)
-                                if name of f2 is targetName then
-                                    return count of messages of f2
-                                end if
-                                -- Search sub-subfolders (level 3)
+                            -- Search folders in this account
+                            repeat with f in (mail folders of acct)
                                 try
-                                    repeat with f3 in (mail folders of f2)
-                                        if name of f3 is targetName then
-                                            return count of messages of f3
-                                        end if
-                                    end repeat
+                                    if name of f is targetName then
+                                        return count of messages of f
+                                    end if
+                                    -- Search subfolders (level 2)
+                                    try
+                                        repeat with f2 in (mail folders of f)
+                                            if name of f2 is targetName then
+                                                return count of messages of f2
+                                            end if
+                                            -- Search sub-subfolders (level 3)
+                                            try
+                                                repeat with f3 in (mail folders of f2)
+                                                    if name of f3 is targetName then
+                                                        return count of messages of f3
+                                                    end if
+                                                end repeat
+                                            end try
+                                        end repeat
+                                    end try
                                 end try
                             end repeat
                         end try
-                    end try
-                end repeat
+                    end repeat
 
-                return 0
-            end tell
-            '''
+                    -- Also try top-level mail folders
+                    repeat with f in (every mail folder)
+                        try
+                            if name of f is targetName then
+                                return count of messages of f
+                            end if
+                        end try
+                    end repeat
+
+                    return 0
+                end tell
+                '''
 
             try:
                 msg_count = int(_run_applescript(count_script))
@@ -264,44 +306,71 @@ class MacOutlookReader:
                     batch_end = min(batch_start + batch_size - 1, to_fetch)
 
                     # Fetch batch of emails (no date filter - we filter in Python)
-                    fetch_script = f'''
-                    tell application "Microsoft Outlook"
-                        set targetName to "{outlook_folder}"
-                        set theFolder to missing value
+                    if outlook_folder.lower() == "selected":
+                        fetch_script = f'''
+                        tell application "Microsoft Outlook"
+                            set theFolder to selected folder
+                            if theFolder is missing value then
+                                return ""
+                            end if'''
+                    else:
+                        fetch_script = f'''
+                        tell application "Microsoft Outlook"
+                            set targetName to "{outlook_folder}"
+                            set theFolder to missing value
 
-                        -- Search through all mail folders including subfolders
-                        repeat with f in (every mail folder)
-                            if theFolder is not missing value then exit repeat
-                            try
-                                if name of f is targetName then
-                                    set theFolder to f
-                                    exit repeat
-                                end if
-                                -- Search subfolders (level 2)
+                            -- Search through all accounts
+                            repeat with acct in (every account)
+                                if theFolder is not missing value then exit repeat
                                 try
-                                    repeat with f2 in (mail folders of f)
+                                    repeat with f in (mail folders of acct)
                                         if theFolder is not missing value then exit repeat
-                                        if name of f2 is targetName then
-                                            set theFolder to f2
-                                            exit repeat
-                                        end if
-                                        -- Search sub-subfolders (level 3)
                                         try
-                                            repeat with f3 in (mail folders of f2)
-                                                if name of f3 is targetName then
-                                                    set theFolder to f3
-                                                    exit repeat
-                                                end if
-                                            end repeat
+                                            if name of f is targetName then
+                                                set theFolder to f
+                                                exit repeat
+                                            end if
+                                            -- Search subfolders (level 2)
+                                            try
+                                                repeat with f2 in (mail folders of f)
+                                                    if theFolder is not missing value then exit repeat
+                                                    if name of f2 is targetName then
+                                                        set theFolder to f2
+                                                        exit repeat
+                                                    end if
+                                                    -- Search sub-subfolders (level 3)
+                                                    try
+                                                        repeat with f3 in (mail folders of f2)
+                                                            if name of f3 is targetName then
+                                                                set theFolder to f3
+                                                                exit repeat
+                                                            end if
+                                                        end repeat
+                                                    end try
+                                                end repeat
+                                            end try
                                         end try
                                     end repeat
                                 end try
-                            end try
-                        end repeat
+                            end repeat
 
-                        if theFolder is missing value then
-                            return ""
-                        end if
+                            -- Also try top-level mail folders
+                            if theFolder is missing value then
+                                repeat with f in (every mail folder)
+                                    try
+                                        if name of f is targetName then
+                                            set theFolder to f
+                                            exit repeat
+                                        end if
+                                    end try
+                                end repeat
+                            end if
+
+                            if theFolder is missing value then
+                                return ""
+                            end if'''
+
+                    fetch_script = fetch_script + f'''
 
                         set allMessages to messages of theFolder
                         set output to ""
