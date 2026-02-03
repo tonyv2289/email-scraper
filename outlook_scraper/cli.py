@@ -319,6 +319,86 @@ def scrape(
 
 
 @cli.command()
+def list_folders():
+    """
+    List all available mail folders in Outlook (macOS only).
+
+    Use this to find the exact folder names for the --folder option.
+    """
+    import sys
+    if sys.platform != 'darwin':
+        console.print("[red]This command is only available on macOS[/red]")
+        return
+
+    console.print("\n[bold blue]Listing Outlook Folders[/bold blue]")
+    console.print("=" * 40)
+
+    script = '''
+    tell application "Microsoft Outlook"
+        set output to ""
+
+        set allAccounts to {}
+        try
+            set allAccounts to allAccounts & exchange accounts
+        end try
+        try
+            set allAccounts to allAccounts & imap accounts
+        end try
+        try
+            set allAccounts to allAccounts & pop accounts
+        end try
+
+        repeat with acct in allAccounts
+            try
+                set acctName to name of acct
+                set output to output & "ACCOUNT: " & acctName & linefeed
+
+                set rootF to root folder of acct
+                repeat with f1 in mail folders of rootF
+                    set f1Name to name of f1
+                    set f1Count to count of messages of f1
+                    set output to output & "  " & f1Name & " (" & f1Count & ")" & linefeed
+
+                    try
+                        repeat with f2 in mail folders of f1
+                            set f2Name to name of f2
+                            set f2Count to count of messages of f2
+                            set output to output & "    " & f2Name & " (" & f2Count & ")" & linefeed
+
+                            try
+                                repeat with f3 in mail folders of f2
+                                    set f3Name to name of f3
+                                    set f3Count to count of messages of f3
+                                    set output to output & "      " & f3Name & " (" & f3Count & ")" & linefeed
+                                end repeat
+                            end try
+                        end repeat
+                    end try
+                end repeat
+            end try
+        end repeat
+
+        return output
+    end tell
+    '''
+
+    import subprocess
+    try:
+        result = subprocess.run(
+            ['osascript', '-e', script],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        if result.returncode == 0:
+            console.print(result.stdout)
+        else:
+            console.print(f"[red]Error: {result.stderr}[/red]")
+    except Exception as e:
+        console.print(f"[red]Failed to list folders: {e}[/red]")
+
+
+@cli.command()
 def login():
     """
     Authenticate with Microsoft Graph API.
