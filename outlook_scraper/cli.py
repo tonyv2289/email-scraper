@@ -333,69 +333,76 @@ def list_folders():
     console.print("\n[bold blue]Listing Outlook Folders[/bold blue]")
     console.print("=" * 40)
 
-    script = '''
-    tell application "Microsoft Outlook"
-        set output to ""
+    import subprocess
 
-        set allAccounts to {}
-        try
-            set allAccounts to allAccounts & exchange accounts
-        end try
-        try
-            set allAccounts to allAccounts & imap accounts
-        end try
-        try
-            set allAccounts to allAccounts & pop accounts
-        end try
-
-        repeat with acct in allAccounts
+    # Try multiple approaches
+    scripts = [
+        # Approach 1: List all mail folders directly
+        ('Method 1: All mail folders', '''
+tell application "Microsoft Outlook"
+    set output to ""
+    try
+        repeat with f in (every mail folder)
             try
-                set acctName to name of acct
-                set output to output & "ACCOUNT: " & acctName & linefeed
-
-                set rootF to root folder of acct
-                repeat with f1 in mail folders of rootF
-                    set f1Name to name of f1
-                    set f1Count to count of messages of f1
-                    set output to output & "  " & f1Name & " (" & f1Count & ")" & linefeed
-
-                    try
-                        repeat with f2 in mail folders of f1
-                            set f2Name to name of f2
-                            set f2Count to count of messages of f2
-                            set output to output & "    " & f2Name & " (" & f2Count & ")" & linefeed
-
-                            try
-                                repeat with f3 in mail folders of f2
-                                    set f3Name to name of f3
-                                    set f3Count to count of messages of f3
-                                    set output to output & "      " & f3Name & " (" & f3Count & ")" & linefeed
-                                end repeat
-                            end try
-                        end repeat
-                    end try
-                end repeat
+                set output to output & name of f & " (" & (count of messages of f) & ")" & linefeed
             end try
         end repeat
+    end try
+    return output
+end tell
+        '''),
+        # Approach 2: Check inbox/sent directly
+        ('Method 2: Standard folders', '''
+tell application "Microsoft Outlook"
+    set output to ""
+    try
+        set output to output & "inbox (" & (count of messages of inbox) & ")" & linefeed
+    end try
+    try
+        set output to output & "sent items (" & (count of messages of sent items) & ")" & linefeed
+    end try
+    try
+        set output to output & "drafts (" & (count of messages of drafts) & ")" & linefeed
+    end try
+    return output
+end tell
+        '''),
+        # Approach 3: Account info
+        ('Method 3: Account info', '''
+tell application "Microsoft Outlook"
+    set output to ""
+    try
+        set output to output & "Default account: " & (name of default account) & linefeed
+        set output to output & "Email: " & (email address of default account) & linefeed
+    end try
+    try
+        set output to output & "Exchange accounts: " & (count of exchange accounts) & linefeed
+    end try
+    try
+        set output to output & "IMAP accounts: " & (count of imap accounts) & linefeed
+    end try
+    return output
+end tell
+        '''),
+    ]
 
-        return output
-    end tell
-    '''
-
-    import subprocess
-    try:
-        result = subprocess.run(
-            ['osascript', '-e', script],
-            capture_output=True,
-            text=True,
-            timeout=60
-        )
-        if result.returncode == 0:
-            console.print(result.stdout)
-        else:
-            console.print(f"[red]Error: {result.stderr}[/red]")
-    except Exception as e:
-        console.print(f"[red]Failed to list folders: {e}[/red]")
+    for name, script in scripts:
+        console.print(f"\n[cyan]{name}:[/cyan]")
+        try:
+            result = subprocess.run(
+                ['osascript', '-e', script],
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                console.print(result.stdout)
+            else:
+                console.print(f"[dim](no output)[/dim]")
+                if result.stderr:
+                    console.print(f"[dim]Error: {result.stderr.strip()}[/dim]")
+        except Exception as e:
+            console.print(f"[dim]Failed: {e}[/dim]")
 
 
 @cli.command()
