@@ -287,7 +287,7 @@ class MacOutlookReader:
                 task = progress.add_task(f"[cyan]Processing {outlook_folder}...", total=to_fetch)
 
                 # Fetch in batches to avoid AppleScript timeouts
-                batch_size = 50
+                batch_size = 25  # Smaller batches for reliability
                 for batch_start in range(1, to_fetch + 1, batch_size):
                     batch_end = min(batch_start + batch_size - 1, to_fetch)
 

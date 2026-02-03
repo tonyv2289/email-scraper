@@ -99,16 +99,8 @@ def _scrape_local(extractor, aggregator, attachment_processor, max_emails, since
                 contact_count=1,
                 source="email_sender",
             )
-            # Try to extract title from body
-            if local_email.body:
-                title = extractor._extract_title_from_text(local_email.body)
-                if title:
-                    sender_contact.title = title
-                company = extractor._extract_company_from_text(local_email.body, local_email.sender_email)
-                if company:
-                    sender_contact.company = company
-            if not sender_contact.company:
-                sender_contact.company = extractor._extract_company_from_text("", local_email.sender_email)
+            # Extract company from email domain (more reliable than signature parsing)
+            sender_contact.company = extractor._extract_company_from_text("", local_email.sender_email)
             aggregator.add_contact(sender_contact)
 
         # Add recipients
