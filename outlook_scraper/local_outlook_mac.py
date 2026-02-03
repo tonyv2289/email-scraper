@@ -200,17 +200,33 @@ class MacOutlookReader:
             outlook_folder = folder_map.get(folder_name.lower(), folder_name)
             console.print(f"\n[cyan]Reading from {outlook_folder}...[/cyan]")
 
-            # Get message count - search through ALL mail folders (simpler approach)
+            # Get message count - search through ALL mail folders including subfolders
             count_script = f'''
             tell application "Microsoft Outlook"
                 set targetName to "{outlook_folder}"
 
-                -- Search through all mail folders in the app
+                -- Search through all mail folders (top level)
                 repeat with f in (every mail folder)
                     try
                         if name of f is targetName then
                             return count of messages of f
                         end if
+                        -- Search subfolders (level 2)
+                        try
+                            repeat with f2 in (mail folders of f)
+                                if name of f2 is targetName then
+                                    return count of messages of f2
+                                end if
+                                -- Search sub-subfolders (level 3)
+                                try
+                                    repeat with f3 in (mail folders of f2)
+                                        if name of f3 is targetName then
+                                            return count of messages of f3
+                                        end if
+                                    end repeat
+                                end try
+                            end repeat
+                        end try
                     end try
                 end repeat
 
@@ -253,13 +269,33 @@ class MacOutlookReader:
                         set targetName to "{outlook_folder}"
                         set theFolder to missing value
 
-                        -- Search through all mail folders
+                        -- Search through all mail folders including subfolders
                         repeat with f in (every mail folder)
+                            if theFolder is not missing value then exit repeat
                             try
                                 if name of f is targetName then
                                     set theFolder to f
                                     exit repeat
                                 end if
+                                -- Search subfolders (level 2)
+                                try
+                                    repeat with f2 in (mail folders of f)
+                                        if theFolder is not missing value then exit repeat
+                                        if name of f2 is targetName then
+                                            set theFolder to f2
+                                            exit repeat
+                                        end if
+                                        -- Search sub-subfolders (level 3)
+                                        try
+                                            repeat with f3 in (mail folders of f2)
+                                                if name of f3 is targetName then
+                                                    set theFolder to f3
+                                                    exit repeat
+                                                end if
+                                            end repeat
+                                        end try
+                                    end repeat
+                                end try
                             end try
                         end repeat
 
