@@ -53,7 +53,7 @@ def _run_applescript(script: str) -> str:
             ['osascript', '-e', script],
             capture_output=True,
             text=True,
-            timeout=120
+            timeout=300  # 5 minutes timeout
         )
         if result.returncode != 0:
             raise RuntimeError(f"AppleScript error: {result.stderr}")
@@ -387,8 +387,10 @@ class MacOutlookReader:
                     '''
 
                     try:
+                        console.print(f"[dim]Fetching batch {batch_start}-{batch_end}...[/dim]")
                         result = _run_applescript(fetch_script)
                         messages = result.split("<<<MSGSEP>>>")
+                        console.print(f"[dim]Got {len([m for m in messages if m.strip()])} messages in batch[/dim]")
 
                         for msg_data in messages:
                             if not msg_data.strip():
@@ -423,6 +425,8 @@ class MacOutlookReader:
                             # Parse recipients
                             to_recipients = self._parse_email_list(to_raw)
                             cc_recipients = self._parse_email_list(cc_raw)
+                            if to_recipients or cc_recipients:
+                                console.print(f"[dim]  Found {len(to_recipients)} to, {len(cc_recipients)} cc recipients[/dim]")
 
                             # Filter by date in Python (more reliable than AppleScript date filtering)
                             if since_date and received_time and received_time < since_date:
