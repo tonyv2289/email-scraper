@@ -53,7 +53,7 @@ def _run_applescript(script: str) -> str:
             ['osascript', '-e', script],
             capture_output=True,
             text=True,
-            timeout=300  # 5 minutes timeout
+            timeout=600  # 10 minutes timeout
         )
         if result.returncode != 0:
             raise RuntimeError(f"AppleScript error: {result.stderr}")
@@ -287,7 +287,7 @@ class MacOutlookReader:
                 task = progress.add_task(f"[cyan]Processing {outlook_folder}...", total=to_fetch)
 
                 # Fetch in batches to avoid AppleScript timeouts
-                batch_size = 25  # Smaller batches for reliability
+                batch_size = 200  # Larger batches with iterator approach
                 for batch_start in range(1, to_fetch + 1, batch_size):
                     batch_end = min(batch_start + batch_size - 1, to_fetch)
 
@@ -341,17 +341,39 @@ class MacOutlookReader:
 
                     fetch_script = fetch_script + f'''
 
-                        set allMessages to messages of theFolder
                         set output to ""
+                        set counter to 0
 
-                        repeat with i from {batch_start} to {batch_end}
-                            try
-                                set theMessage to item i of allMessages
-                                set msgSubject to subject of theMessage
-                                set msgSender to sender of theMessage
-                                set senderEmail to address of msgSender
-                                set senderName to name of msgSender
-                                set msgTime to time received of theMessage
+                        repeat with theMessage in (messages of theFolder)
+                            set counter to counter + 1
+                            if counter < {batch_start} then
+                                -- skip to batch start
+                            else if counter > {batch_end} then
+                                exit repeat
+                            else
+                                -- Robust property access: each property in its own try block
+                                set msgSubject to ""
+                                try
+                                    set msgSubject to subject of theMessage
+                                end try
+
+                                set senderEmail to ""
+                                set senderName to ""
+                                try
+                                    set msgSender to sender of theMessage
+                                    try
+                                        set senderEmail to address of msgSender
+                                    end try
+                                    try
+                                        set senderName to name of msgSender
+                                    end try
+                                end try
+
+                                set msgTime to ""
+                                try
+                                    set msgTime to (time received of theMessage) as string
+                                end try
+
                                 set msgBody to ""
                                 try
                                     set msgBody to plain text content of theMessage
@@ -359,27 +381,38 @@ class MacOutlookReader:
 
                                 -- Get recipients
                                 set toList to ""
-                                repeat with r in to recipients of theMessage
-                                    set toList to toList & address of r & ","
-                                end repeat
+                                try
+                                    repeat with r in to recipients of theMessage
+                                        try
+                                            set toList to toList & address of r & ","
+                                        end try
+                                    end repeat
+                                end try
 
                                 set ccList to ""
-                                repeat with r in cc recipients of theMessage
-                                    set ccList to ccList & address of r & ","
-                                end repeat
+                                try
+                                    repeat with r in cc recipients of theMessage
+                                        try
+                                            set ccList to ccList & address of r & ","
+                                        end try
+                                    end repeat
+                                end try
 
                                 -- Format: subject|||senderEmail|||senderName|||time|||body|||toList|||ccList
                                 set bodyText to ""
-                                if length of msgBody > 0 then
-                                    if length of msgBody > 2000 then
-                                        set bodyText to text 1 thru 2000 of msgBody
-                                    else
-                                        set bodyText to msgBody
+                                try
+                                    if length of msgBody > 0 then
+                                        if length of msgBody > 2000 then
+                                            set bodyText to text 1 thru 2000 of msgBody
+                                        else
+                                            set bodyText to msgBody
+                                        end if
                                     end if
-                                end if
-                                set msgLine to msgSubject & "|||" & senderEmail & "|||" & senderName & "|||" & (msgTime as string) & "|||" & bodyText & "|||" & toList & "|||" & ccList
+                                end try
+
+                                set msgLine to msgSubject & "|||" & senderEmail & "|||" & senderName & "|||" & msgTime & "|||" & bodyText & "|||" & toList & "|||" & ccList
                                 set output to output & msgLine & "<<<MSGSEP>>>"
-                            end try
+                            end if
                         end repeat
 
                         return output
