@@ -446,9 +446,6 @@ class MacOutlookReader:
                                     end repeat
                                 end try
 
-                                -- Include recipient counts in output for debugging
-                                set recipDebug to "TO:" & toCount & ",CC:" & ccCount
-
                                 -- Format: subject|||senderEmail|||senderName|||time|||body|||toList|||ccList
                                 set bodyText to ""
                                 try
@@ -461,7 +458,7 @@ class MacOutlookReader:
                                     end if
                                 end try
 
-                                set msgLine to msgSubject & "|||" & senderEmail & "|||" & senderName & "|||" & msgTime & "|||" & bodyText & "|||" & toList & "|||" & ccList & "|||" & recipDebug
+                                set msgLine to msgSubject & "|||" & senderEmail & "|||" & senderName & "|||" & msgTime & "|||" & bodyText & "|||" & toList & "|||" & ccList
                                 set output to output & msgLine & "<<<MSGSEP>>>"
                             end if
                         end repeat
@@ -491,10 +488,6 @@ class MacOutlookReader:
                             body = parts[4] if parts[4] != "missing value" else ""
                             to_raw = parts[5]
                             cc_raw = parts[6]
-
-                            # Debug: print recipient counts for first few messages
-                            if len(parts) > 7 and total_fetched < 5:
-                                console.print(f"[yellow]DEBUG msg {total_fetched+1}: {parts[7]}, toRaw='{to_raw[:50] if to_raw else ''}', ccRaw='{cc_raw[:50] if cc_raw else ''}'[/yellow]")
 
                             # Parse received time
                             received_time = None
