@@ -5,9 +5,12 @@ Reads emails directly from Outlook for Mac using AppleScript.
 No Azure AD or admin permissions required - just needs Outlook for Mac installed.
 """
 
+import os
 import subprocess
 import json
 import re
+import tempfile
+import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Generator, List, Optional
@@ -198,6 +201,12 @@ class MacOutlookReader:
             folders = ['inbox', 'sent items']
 
         total_fetched = 0
+
+        # Create temp directory for attachments if needed
+        attachment_dir = None
+        if include_attachments:
+            attachment_dir = tempfile.mkdtemp(prefix="outlook_attachments_")
+            console.print(f"[dim]Saving attachments to temp dir: {attachment_dir}[/dim]")
 
         # Map common folder names (but allow custom folder names to pass through)
         folder_map = {
@@ -446,7 +455,7 @@ class MacOutlookReader:
                                     end repeat
                                 end try
 
-                                -- Format: subject|||senderEmail|||senderName|||time|||body|||toList|||ccList
+                                -- Format: subject|||senderEmail|||senderName|||time|||body|||toList|||ccList|||attachmentPaths
                                 set bodyText to ""
                                 try
                                     if length of msgBody > 0 then
@@ -458,7 +467,30 @@ class MacOutlookReader:
                                     end if
                                 end try
 
-                                set msgLine to msgSubject & "|||" & senderEmail & "|||" & senderName & "|||" & msgTime & "|||" & bodyText & "|||" & toList & "|||" & ccList
+                                -- Handle attachments if requested
+                                set attachmentPaths to ""
+                                '''
+
+                    # Add attachment handling if enabled
+                    if include_attachments and attachment_dir:
+                        fetch_script = fetch_script + f'''
+                                try
+                                    set attList to every attachment of theMessage
+                                    repeat with att in attList
+                                        try
+                                            set attName to name of att
+                                            -- Create unique filename: counter_originalname
+                                            set savePath to "{attachment_dir}/" & counter & "_" & attName
+                                            -- Save the attachment
+                                            save att in savePath
+                                            set attachmentPaths to attachmentPaths & savePath & ";;;"
+                                        end try
+                                    end repeat
+                                end try
+                                '''
+
+                    fetch_script = fetch_script + '''
+                                set msgLine to msgSubject & "|||" & senderEmail & "|||" & senderName & "|||" & msgTime & "|||" & bodyText & "|||" & toList & "|||" & ccList & "|||" & attachmentPaths
                                 set output to output & msgLine & "<<<MSGSEP>>>"
                             end if
                         end repeat
@@ -509,6 +541,30 @@ class MacOutlookReader:
                             if to_recipients or cc_recipients:
                                 console.print(f"[dim]  Found {len(to_recipients)} to, {len(cc_recipients)} cc recipients[/dim]")
 
+                            # Parse attachments if available
+                            attachments = []
+                            if len(parts) > 7 and parts[7].strip():
+                                attachment_paths = parts[7].split(";;;")
+                                for att_path in attachment_paths:
+                                    att_path = att_path.strip()
+                                    if att_path and os.path.exists(att_path):
+                                        try:
+                                            with open(att_path, 'rb') as f:
+                                                content = f.read()
+                                            att_name = os.path.basename(att_path)
+                                            # Remove the counter prefix (e.g., "123_filename.pdf" -> "filename.pdf")
+                                            if '_' in att_name:
+                                                att_name = att_name.split('_', 1)[1]
+                                            attachments.append(LocalAttachment(
+                                                name=att_name,
+                                                content=content,
+                                                size=len(content),
+                                            ))
+                                        except Exception as e:
+                                            console.print(f"[yellow]Warning: Could not read attachment {att_path}: {e}[/yellow]")
+                                if attachments:
+                                    console.print(f"[dim]  Found {len(attachments)} attachments[/dim]")
+
                             # Filter by date in Python (more reliable than AppleScript date filtering)
                             if since_date and received_time and received_time < since_date:
                                 progress.update(task, advance=1)
@@ -522,7 +578,7 @@ class MacOutlookReader:
                                 cc_recipients=cc_recipients,
                                 received_time=received_time,
                                 body=body,
-                                attachments=[],  # Attachment extraction is complex on Mac
+                                attachments=attachments,
                             )
 
                             total_fetched += 1
@@ -540,3 +596,11 @@ class MacOutlookReader:
                         break
 
         console.print(f"\n[green]Total emails processed: {total_fetched}[/green]")
+
+        # Clean up temp attachment directory
+        if attachment_dir and os.path.exists(attachment_dir):
+            try:
+                shutil.rmtree(attachment_dir)
+                console.print(f"[dim]Cleaned up temp attachment directory[/dim]")
+            except Exception as e:
+                console.print(f"[yellow]Warning: Could not clean up temp directory {attachment_dir}: {e}[/yellow]")
