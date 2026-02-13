@@ -379,32 +379,75 @@ class MacOutlookReader:
                                     set msgBody to plain text content of theMessage
                                 end try
 
-                                -- Get recipients (use 'email address' property and explicit list)
+                                -- Get recipients - try multiple property access methods
                                 set toList to ""
+                                set toCount to 0
                                 try
                                     set toRecips to every to recipient of theMessage
+                                    set toCount to count of toRecips
                                     repeat with r in toRecips
                                         try
+                                            -- Try method 1: direct email address property
                                             set recipAddr to email address of r
-                                            if recipAddr is not missing value and recipAddr is not "" then
-                                                set toList to toList & recipAddr & ","
+                                            if recipAddr is not missing value then
+                                                -- email address might be an object, try to get address from it
+                                                try
+                                                    set actualAddr to address of recipAddr
+                                                    if actualAddr is not missing value and actualAddr is not "" then
+                                                        set toList to toList & actualAddr & ","
+                                                    end if
+                                                on error
+                                                    -- email address was already a string
+                                                    if recipAddr is not "" then
+                                                        set toList to toList & recipAddr & ","
+                                                    end if
+                                                end try
                                             end if
+                                        on error
+                                            -- Try method 2: direct address property
+                                            try
+                                                set recipAddr to address of r
+                                                if recipAddr is not missing value and recipAddr is not "" then
+                                                    set toList to toList & recipAddr & ","
+                                                end if
+                                            end try
                                         end try
                                     end repeat
                                 end try
 
                                 set ccList to ""
+                                set ccCount to 0
                                 try
                                     set ccRecips to every cc recipient of theMessage
+                                    set ccCount to count of ccRecips
                                     repeat with r in ccRecips
                                         try
                                             set recipAddr to email address of r
-                                            if recipAddr is not missing value and recipAddr is not "" then
-                                                set ccList to ccList & recipAddr & ","
+                                            if recipAddr is not missing value then
+                                                try
+                                                    set actualAddr to address of recipAddr
+                                                    if actualAddr is not missing value and actualAddr is not "" then
+                                                        set ccList to ccList & actualAddr & ","
+                                                    end if
+                                                on error
+                                                    if recipAddr is not "" then
+                                                        set ccList to ccList & recipAddr & ","
+                                                    end if
+                                                end try
                                             end if
+                                        on error
+                                            try
+                                                set recipAddr to address of r
+                                                if recipAddr is not missing value and recipAddr is not "" then
+                                                    set ccList to ccList & recipAddr & ","
+                                                end if
+                                            end try
                                         end try
                                     end repeat
                                 end try
+
+                                -- Include recipient counts in output for debugging
+                                set recipDebug to "TO:" & toCount & ",CC:" & ccCount
 
                                 -- Format: subject|||senderEmail|||senderName|||time|||body|||toList|||ccList
                                 set bodyText to ""
@@ -418,7 +461,7 @@ class MacOutlookReader:
                                     end if
                                 end try
 
-                                set msgLine to msgSubject & "|||" & senderEmail & "|||" & senderName & "|||" & msgTime & "|||" & bodyText & "|||" & toList & "|||" & ccList
+                                set msgLine to msgSubject & "|||" & senderEmail & "|||" & senderName & "|||" & msgTime & "|||" & bodyText & "|||" & toList & "|||" & ccList & "|||" & recipDebug
                                 set output to output & msgLine & "<<<MSGSEP>>>"
                             end if
                         end repeat
@@ -448,6 +491,10 @@ class MacOutlookReader:
                             body = parts[4] if parts[4] != "missing value" else ""
                             to_raw = parts[5]
                             cc_raw = parts[6]
+
+                            # Debug: print recipient counts for first few messages
+                            if len(parts) > 7 and total_fetched < 5:
+                                console.print(f"[yellow]DEBUG msg {total_fetched+1}: {parts[7]}, toRaw='{to_raw[:50] if to_raw else ''}', ccRaw='{cc_raw[:50] if cc_raw else ''}'[/yellow]")
 
                             # Parse received time
                             received_time = None
