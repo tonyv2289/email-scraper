@@ -309,7 +309,58 @@ class MacOutlookReader:
                                 return ""
                             end if'''
                     else:
-                        fetch_script = f'''
+                        # Check if it's a nested path like "9 SALES/Leads"
+                        if '/' in outlook_folder:
+                            folder_parts = outlook_folder.split('/')
+                            parent_name = folder_parts[0].strip()
+                            child_name = folder_parts[1].strip()
+                            fetch_script = f'''
+                        tell application "Microsoft Outlook"
+                            set parentName to "{parent_name}"
+                            set childName to "{child_name}"
+                            set theFolder to missing value
+
+                            -- Search for parent folder first, then find child
+                            repeat with f in (every mail folder)
+                                if theFolder is not missing value then exit repeat
+                                try
+                                    if name of f is parentName then
+                                        -- Found parent, now look for child
+                                        try
+                                            repeat with f2 in (mail folders of f)
+                                                if name of f2 is childName then
+                                                    set theFolder to f2
+                                                    exit repeat
+                                                end if
+                                            end repeat
+                                        end try
+                                        exit repeat
+                                    end if
+                                    -- Also check subfolders for parent
+                                    try
+                                        repeat with f2 in (mail folders of f)
+                                            if theFolder is not missing value then exit repeat
+                                            if name of f2 is parentName then
+                                                try
+                                                    repeat with f3 in (mail folders of f2)
+                                                        if name of f3 is childName then
+                                                            set theFolder to f3
+                                                            exit repeat
+                                                        end if
+                                                    end repeat
+                                                end try
+                                                exit repeat
+                                            end if
+                                        end repeat
+                                    end try
+                                end try
+                            end repeat
+
+                            if theFolder is missing value then
+                                return ""
+                            end if'''
+                        else:
+                            fetch_script = f'''
                         tell application "Microsoft Outlook"
                             set targetName to "{outlook_folder}"
                             set theFolder to missing value
