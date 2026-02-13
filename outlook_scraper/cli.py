@@ -99,8 +99,14 @@ def _scrape_local(extractor, aggregator, attachment_processor, max_emails, since
                 contact_count=1,
                 source="email_sender",
             )
-            # Extract company from email domain (more reliable than signature parsing)
-            sender_contact.company = extractor._extract_company_from_text("", local_email.sender_email)
+            # Extract title, company, phone from email body/signature
+            if local_email.body:
+                sender_contact.title = extractor._extract_title_from_text(local_email.body)
+                sender_contact.company = extractor._extract_company_from_text(local_email.body, local_email.sender_email)
+                sender_contact.phone = extractor._extract_phone_from_text(local_email.body)
+            else:
+                # Fallback to email domain for company
+                sender_contact.company = extractor._extract_company_from_text("", local_email.sender_email)
             aggregator.add_contact(sender_contact)
 
         # Add recipients
@@ -127,6 +133,27 @@ def _scrape_local(extractor, aggregator, attachment_processor, max_emails, since
                     source="email_cc",
                 )
                 aggregator.add_contact(contact)
+
+        # Extract additional emails mentioned in body text
+        if local_email.body:
+            import re
+            email_pattern = re.compile(r'[\w\.-]+@[\w\.-]+\.\w+')
+            body_emails = set(email_pattern.findall(local_email.body.lower()))
+            # Filter out already-captured emails and common non-person emails
+            existing_emails = {local_email.sender_email.lower()} if local_email.sender_email else set()
+            existing_emails.update(r.email.lower() for r in local_email.to_recipients if r.email)
+            existing_emails.update(r.email.lower() for r in local_email.cc_recipients if r.email)
+            skip_patterns = ['noreply', 'no-reply', 'donotreply', 'mailer-daemon', 'postmaster', 'unsubscribe']
+            for body_email in body_emails:
+                if body_email not in existing_emails and not any(skip in body_email for skip in skip_patterns):
+                    contact = Contact(
+                        email=body_email,
+                        company=extractor._extract_company_from_text("", body_email),
+                        last_contact_date=local_email.received_time,
+                        contact_count=1,
+                        source="email_body",
+                    )
+                    aggregator.add_contact(contact)
 
         # Process attachments
         if process_attachments and local_email.attachments:
