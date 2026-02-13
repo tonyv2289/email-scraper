@@ -379,21 +379,29 @@ class MacOutlookReader:
                                     set msgBody to plain text content of theMessage
                                 end try
 
-                                -- Get recipients
+                                -- Get recipients (use 'email address' property and explicit list)
                                 set toList to ""
                                 try
-                                    repeat with r in to recipients of theMessage
+                                    set toRecips to every to recipient of theMessage
+                                    repeat with r in toRecips
                                         try
-                                            set toList to toList & address of r & ","
+                                            set recipAddr to email address of r
+                                            if recipAddr is not missing value and recipAddr is not "" then
+                                                set toList to toList & recipAddr & ","
+                                            end if
                                         end try
                                     end repeat
                                 end try
 
                                 set ccList to ""
                                 try
-                                    repeat with r in cc recipients of theMessage
+                                    set ccRecips to every cc recipient of theMessage
+                                    repeat with r in ccRecips
                                         try
-                                            set ccList to ccList & address of r & ","
+                                            set recipAddr to email address of r
+                                            if recipAddr is not missing value and recipAddr is not "" then
+                                                set ccList to ccList & recipAddr & ","
+                                            end if
                                         end try
                                     end repeat
                                 end try
