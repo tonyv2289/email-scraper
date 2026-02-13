@@ -481,8 +481,8 @@ class MacOutlookReader:
                                             set attName to name of att
                                             -- Create unique filename: counter_originalname
                                             set savePath to "{attachment_dir}/" & counter & "_" & attName
-                                            -- Save the attachment
-                                            save att in savePath
+                                            -- Save the attachment using POSIX file path
+                                            save att in POSIX file savePath
                                             set attachmentPaths to attachmentPaths & savePath & ";;;"
                                         end try
                                     end repeat
